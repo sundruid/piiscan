@@ -20,10 +20,11 @@ var regexes = map[string]*regexp.Regexp{
 	"domesticPhoneRegex":      regexp.MustCompile(`^(\(?\d{3}?\)?[-.\s]?)?\d{3}[-.\s]?\d{4}$`),
 	"public IP":               regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`),
 	"birthdate":               regexp.MustCompile(fmt.Sprintf(`\b\d{1,2}[-.\s]\d{1,2}[-.\s](?:19\d{2}|[2-%d]\d{2})\b`, time.Now().Year()-18)),
-	"national/SSN ID":         regexp.MustCompile(`\b\d{3}[-.\s]\d{2}[-.\s]\d{4}\b`),
+	"national/SSN ID":         regexp.MustCompile(`\b\d{3}-\d{2}-\d{4}\b`),
 	"EU address":              regexp.MustCompile(`\b[A-Z][a-z]{0,25}[\s\t,]\d{1,5}[\s\t,]\d{4,6}[\s\t,][A-Z][a-z]{2,15}\b`),
-	"Hebrew detected":         regexp.MustCompile(`[\x{0590}-\x{05FF}]+`),
-	"Hindi detected":          regexp.MustCompile(`[\x{0900}-\x{097F}]+`),
+	"MC detected":             regexp.MustCompile(`^(?:5[1-5][0-9]{2}|222[1-9]|22[3-9][0-9]|2[3-6][0-9]{2}|27[01][0-9]|2720)[0-9]{12}$`),
+	"VISA detected":           regexp.MustCompile(`\b([4]\d{3}[\s]\d{4}[\s]\d{4}[\s]\d{4}|[4]\d{3}[-]\d{4}[-]\d{4}[-]\d{4}|[4]\d{3}[.]\d{4}[.]\d{4}[.]\d{4}|[4]\d{3}\d{4}\d{4}\d{4})\b`),
+	"AMEX detected":           regexp.MustCompile(`^3[47][0-9]{13}$`),
 }
 
 func isTextFile(file string) bool {
