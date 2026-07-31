@@ -1,0 +1,14 @@
+# Local builds and generated reports
+/piiscan
+/piiscan-*
+*.report.docx
+coverage.out
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Test and temporary data
+*.test
+tmp/

@@ -1,78 +1,68 @@
-# PII Scanner v3 - README
+# piiscan
 
-## Overview
+`piiscan` is an offline, cross-platform triage scanner for personally identifiable information (PII), secrets, and other sensitive identifiers. It walks a directory, extracts readable content from common files and containers, ranks suspected logical files with an explainable confidence score, and writes an incident-response report in `.docx` format.
 
-`pii_scanner v3` is a command-line utility written in Go that scans a specified filesystem for files containing personally identifiable information (PII) and other sensitive data. This tool supports multiple file formats (text, SQL, JSON, MySQL dumps) and uses regular expressions to detect specific data patterns such as:
+The score is a triage ranking, not a probability or a legal determination. Incident responders should validate the original source and business context before containment, deletion, or notification decisions.
 
-- Email addresses
-- Phone numbers (international and domestic)
-- Birthdates
-- Social Security Numbers (SSNs)
-- Credit card numbers (Visa, MasterCard, AMEX)
-- Sensitive labels in JSON and SQL files (e.g., `nationalID`, `SSN`)
-- TLS private keys
+## What it scans
 
-Additionally, it can detect obfuscation tags in files.
+The shared detector catalog and validation rules live in [`detector.go`](detector.go). Adding or tuning a detector is deliberately isolated from the file-extraction and reporting code.
 
-## Features
+The scanner supports:
 
-- **File Format Support**: Scans `.sql`, `.json`, `.jsonl`, `.txt`, and MySQL dump files.
-- **Regular Expressions**: Uses predefined regex patterns to detect sensitive information.
-- **Concurrency**: Files are scanned concurrently for improved performance.
-- **File Type Identification**: Automatically identifies file types (e.g., text, JSON, SQL, MySQL dump) and applies appropriate scanning rules.
-- **Obfuscation Tag Detection**: Identifies obfuscated files containing a specific UUID.
+- Text and structured data: text, CSV, TSV, JSON, JSON Lines/NDJSON, SQL, XML, HTML, YAML, RTF, logs, source files, and common configuration files.
+- Office/OpenDocument packages: DOCX, XLSX, PPTX, ODT, ODS, and ODP. XML parts are decoded so values split across formatted runs can still be detected.
+- Databases: SQLite files are opened read-only and scanned table by table. SQL dumps are scanned as text.
+- Containers: ZIP, TAR, GZIP, and nested combinations, with bounded decompression to reduce archive-bomb risk.
+- Email: `.eml` headers and message bodies.
+- PDF: embedded text layers through a pure-Go parser. Scanned-image, encrypted, or otherwise textless PDFs require OCR or a separate controlled workflow.
+- Legacy Office binaries (`.doc`, `.xls`, `.ppt`, and `.msg`) through best-effort printable-string extraction; embedded or encoded text can be missed.
 
-## How It Works
-
-1. The program accepts a root directory (`-filesystem`) as input.
-2. It recursively walks through all files in the specified directory.
-3. Files are categorized by type (e.g., text, JSON, SQL) and scanned accordingly using predefined regular expressions.
-4. If sensitive data is found, the program outputs a sample of matches from each file.
-5. The tool can detect obfuscated files based on a predefined UUID.
-
-## Installation
-
-### Prerequisites
-
-- Go version 1.18 or higher
-
-### Steps
-
-1. Clone the repository or download the Go file:
-    ```bash
-    git clone https://github.com/your-username/pii_scanner.git
-    cd pii_scanner
-    ```
-
-2. Build the executable:
-    ```bash
-    go build -o pii_scanner .
-    ```
-
-3. Run the scanner with the required `-filesystem` flag:
-    ```bash
-    ./pii_scanner -filesystem=/path/to/scan
-    ```
+The detector currently includes validated patterns for email addresses, phone numbers, dates, SSNs, payment cards, passport and driver-license identifiers when context labels them, postal address fragments, IP/MAC addresses, AWS access keys, IBANs, Bitcoin addresses, private-key headers, and sensitive field names. It is intentionally not a replacement for an organization-specific data classification policy.
 
 ## Usage
 
-### Command-Line Options
+```bash
+go build -trimpath -ldflags='-s -w' -o piiscan .
+./piiscan \
+  -filesystem=/path/to/evidence \
+  -report=/path/to/piiscan-report.docx
+```
 
-- `-filesystem`: Specifies the root directory to scan. **Required**.
-    ```bash
-    ./pii_scanner -filesystem=/home/user/files
-    ```
+Options:
 
-### Example Output
+- `-filesystem` (required): directory to scan. Symlinks are not followed.
+- `-report`: output DOCX path. Defaults to `piiscan-report.docx`.
+- `-workers`: concurrent extractors. Defaults to the available CPU count.
+- `-min-confidence`: include findings at or above this score (0-99). Defaults to 40.
+- `-include-evidence`: include a small number of redacted evidence samples in console output and the report. Raw values are never written by this option.
+- `-max-samples`: maximum redacted evidence samples per logical finding. Defaults to 3.
 
-When scanning a directory, the output will show samples of sensitive data found in files:
+Console output is intentionally file-centric:
+
+```text
+[96%] /evidence/customers.xlsx (XLSX) - payment card (4), email address (8)
+```
+
+The DOCX report includes an executive summary, ranked findings, extraction format, confidence rationale, warnings and limitations, redacted evidence when requested, and an incident-response checklist.
+
+## Development
+
+Requirements: Go 1.26 or newer.
 
 ```bash
-pii_scanner v.3 maintained by kenneth.webster@imperva.com
-In file /path/to/file.json, found 3 instances of email address. Sample matches:
-  Match 1: user@example.com
-  Match 2: admin@domain.com
-  Match 3: contact@website.com
+gofmt -w .
+go test -race ./...
+go vet ./...
+go build ./...
+```
 
-In MySQL dump file /path/to/file.sql, found instances of sensitive_sql_column. Sample matches:
-  Match 1: SSN: '123-45-6789'
+The GitHub Actions workflow runs formatting, race-enabled tests, vet, a native build, and CGO-free cross-builds for:
+
+- macOS: amd64 and arm64
+- Linux: amd64 and arm64
+- Windows: amd64 and arm64
+
+Pushing a semantic version tag such as `v5.0.0` runs the release workflow and publishes archives for all six targets. The release build is CGO-free so the SQLite driver remains portable.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the maintenance checklist.
