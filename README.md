@@ -1,78 +1,94 @@
-# PII Scanner v3 - README
+# piiscan
 
-## Overview
+[![CI](https://github.com/sundruid/piiscan/actions/workflows/ci.yml/badge.svg)](https://github.com/sundruid/piiscan/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/sundruid/piiscan?sort=semver)](https://github.com/sundruid/piiscan/releases)
 
-`pii_scanner v3` is a command-line utility written in Go that scans a specified filesystem for files containing personally identifiable information (PII) and other sensitive data. This tool supports multiple file formats (text, SQL, JSON, MySQL dumps) and uses regular expressions to detect specific data patterns such as:
+`piiscan` is an offline, cross-platform PII and secret triage scanner. It walks an evidence directory, extracts readable content from files, databases, office documents, and bounded archives, and ranks each logical file with an explainable confidence score. It writes a review-ready incident-response report in `.docx` format.
 
-- Email addresses
-- Phone numbers (international and domestic)
-- Birthdates
-- Social Security Numbers (SSNs)
-- Credit card numbers (Visa, MasterCard, AMEX)
-- Sensitive labels in JSON and SQL files (e.g., `nationalID`, `SSN`)
-- TLS private keys
+The current release is **v5.0.0**. Scores are triage signals (0–99%), not probabilities or legal conclusions. Validate the original evidence and business context before taking containment, deletion, or notification action.
 
-Additionally, it can detect obfuscation tags in files.
+## Quick start
 
-## Features
-
-- **File Format Support**: Scans `.sql`, `.json`, `.jsonl`, `.txt`, and MySQL dump files.
-- **Regular Expressions**: Uses predefined regex patterns to detect sensitive information.
-- **Concurrency**: Files are scanned concurrently for improved performance.
-- **File Type Identification**: Automatically identifies file types (e.g., text, JSON, SQL, MySQL dump) and applies appropriate scanning rules.
-- **Obfuscation Tag Detection**: Identifies obfuscated files containing a specific UUID.
-
-## How It Works
-
-1. The program accepts a root directory (`-filesystem`) as input.
-2. It recursively walks through all files in the specified directory.
-3. Files are categorized by type (e.g., text, JSON, SQL) and scanned accordingly using predefined regular expressions.
-4. If sensitive data is found, the program outputs a sample of matches from each file.
-5. The tool can detect obfuscated files based on a predefined UUID.
-
-## Installation
-
-### Prerequisites
-
-- Go version 1.18 or higher
-
-### Steps
-
-1. Clone the repository or download the Go file:
-    ```bash
-    git clone https://github.com/your-username/pii_scanner.git
-    cd pii_scanner
-    ```
-
-2. Build the executable:
-    ```bash
-    go build -o pii_scanner .
-    ```
-
-3. Run the scanner with the required `-filesystem` flag:
-    ```bash
-    ./pii_scanner -filesystem=/path/to/scan
-    ```
-
-## Usage
-
-### Command-Line Options
-
-- `-filesystem`: Specifies the root directory to scan. **Required**.
-    ```bash
-    ./pii_scanner -filesystem=/home/user/files
-    ```
-
-### Example Output
-
-When scanning a directory, the output will show samples of sensitive data found in files:
+Download the archive for the target operating system and architecture from the [latest release](https://github.com/sundruid/piiscan/releases/latest), or build from source with Go 1.26+:
 
 ```bash
-pii_scanner v.3 maintained by kenneth.webster@imperva.com
-In file /path/to/file.json, found 3 instances of email address. Sample matches:
-  Match 1: user@example.com
-  Match 2: admin@domain.com
-  Match 3: contact@website.com
+go build -trimpath -ldflags='-s -w' -o piiscan .
+./piiscan \
+  -filesystem=/path/to/evidence \
+  -report=/path/to/piiscan-report.docx
+```
 
-In MySQL dump file /path/to/file.sql, found instances of sensitive_sql_column. Sample matches:
-  Match 1: SSN: '123-45-6789'
+The scanner prints one ranked line per suspected file and writes the DOCX report. Evidence is omitted by default; `-include-evidence` adds only redacted samples.
+
+```text
+[96%] /evidence/customers.xlsx (XLSX) - payment card (4), email address (8)
+Report written to /evidence/piiscan-report.docx
+```
+
+## What is scanned
+
+Extraction and detection are separate layers. The detector catalog and its validators live in [`detector.go`](detector.go), so adding or tuning a PII class does not require changing file-format code. The catalog is the source of truth; the README intentionally describes coverage by family rather than duplicating every pattern.
+
+Supported input families include:
+
+- Text and structured data: plain text, logs, source/config files, CSV/TSV, JSON/JSONL, SQL, XML/HTML, YAML, RTF, and email (`.eml`).
+- Office and OpenDocument packages: DOCX, XLSX, PPTX, ODT, ODS, and ODP, including values split across XML formatting runs.
+- Databases: SQLite (`.db`, `.sqlite`, `.sqlite3`) scanned read-only table by table; SQL dumps are treated as text.
+- Containers: ZIP, TAR, GZIP, and bounded nested combinations. Archive limits reduce accidental archive-bomb exposure.
+- PDF: embedded text through a pure-Go parser.
+- Legacy Office binaries: `.doc`, `.xls`, `.ppt`, and `.msg` through best-effort printable-string extraction.
+
+Scanned-image or encrypted PDFs need OCR/decryption in a separate controlled workflow. Legacy binary formats and heavily encoded content can yield incomplete text.
+
+## Detection and triage
+
+The catalog combines pattern matching with validity checks and context signals. It is designed to find common identifiers and secrets while reducing obvious false positives. Findings are grouped by logical file and include:
+
+- a confidence percentage for analyst prioritization;
+- matched categories and counts;
+- source format and extraction warnings;
+- optional redacted evidence samples; and
+- deterministic ordering for repeatable incident review.
+
+Use `-min-confidence` to change the reporting threshold. The default is 40. A higher threshold is useful for a first-pass queue; a lower threshold is useful when recall matters more than analyst time.
+
+## Command-line options
+
+- `-filesystem` (required): root directory to scan. Symlinks are not followed.
+- `-report`: output DOCX path; default `piiscan-report.docx`.
+- `-workers`: maximum concurrent file scanners; defaults to the available CPU count.
+- `-min-confidence`: include findings at or above 0–99; default 40.
+- `-include-evidence`: include redacted samples in console output and the DOCX report.
+- `-max-samples`: maximum redacted samples per finding; default 3.
+- `-version`: print the scanner version.
+
+The report contains an executive summary, ranked findings, format coverage, confidence rationale, warnings and limitations, optional redacted evidence, and a response checklist.
+
+## Releases
+
+Tags matching `vMAJOR.MINOR.PATCH` publish archives with SHA-256 checksums through GitHub Actions. Each release contains CGO-free builds for:
+
+| OS | Architectures | Archive |
+| --- | --- | --- |
+| macOS | amd64, arm64 | `.tar.gz` |
+| Linux | amd64, arm64 | `.tar.gz` |
+| Windows | amd64, arm64 | `.zip` |
+
+Every archive has a matching `.sha256` file. The release workflow is defined in [`.github/workflows/release.yml`](.github/workflows/release.yml).
+
+## Development
+
+Requirements: Go 1.26 or newer.
+
+```bash
+gofmt -w .
+go test -race ./...
+go vet ./...
+go build ./...
+```
+
+CI also runs CGO-free cross-builds for all six release targets. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for detector, extractor, fixture, and release conventions.
+
+## License
+
+No license has been declared yet. Treat the repository as all-rights-reserved until a project license is added.

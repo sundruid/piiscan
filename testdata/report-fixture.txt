@@ -1,0 +1,3 @@
+Incident fixture (synthetic values only)
+Contact: analyst@example.com
+Record: SSN 123-45-6789
