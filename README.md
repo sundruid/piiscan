@@ -1,26 +1,15 @@
 # piiscan
 
-`piiscan` is an offline, cross-platform triage scanner for personally identifiable information (PII), secrets, and other sensitive identifiers. It walks a directory, extracts readable content from common files and containers, ranks suspected logical files with an explainable confidence score, and writes an incident-response report in `.docx` format.
+[![CI](https://github.com/sundruid/piiscan/actions/workflows/ci.yml/badge.svg)](https://github.com/sundruid/piiscan/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/sundruid/piiscan?sort=semver)](https://github.com/sundruid/piiscan/releases)
 
-The score is a triage ranking, not a probability or a legal determination. Incident responders should validate the original source and business context before containment, deletion, or notification decisions.
+`piiscan` is an offline, cross-platform PII and secret triage scanner. It walks an evidence directory, extracts readable content from files, databases, office documents, and bounded archives, and ranks each logical file with an explainable confidence score. It writes a review-ready incident-response report in `.docx` format.
 
-## What it scans
+The current release is **v5.0.0**. Scores are triage signals (0–99%), not probabilities or legal conclusions. Validate the original evidence and business context before taking containment, deletion, or notification action.
 
-The shared detector catalog and validation rules live in [`detector.go`](detector.go). Adding or tuning a detector is deliberately isolated from the file-extraction and reporting code.
+## Quick start
 
-The scanner supports:
-
-- Text and structured data: text, CSV, TSV, JSON, JSON Lines/NDJSON, SQL, XML, HTML, YAML, RTF, logs, source files, and common configuration files.
-- Office/OpenDocument packages: DOCX, XLSX, PPTX, ODT, ODS, and ODP. XML parts are decoded so values split across formatted runs can still be detected.
-- Databases: SQLite files are opened read-only and scanned table by table. SQL dumps are scanned as text.
-- Containers: ZIP, TAR, GZIP, and nested combinations, with bounded decompression to reduce archive-bomb risk.
-- Email: `.eml` headers and message bodies.
-- PDF: embedded text layers through a pure-Go parser. Scanned-image, encrypted, or otherwise textless PDFs require OCR or a separate controlled workflow.
-- Legacy Office binaries (`.doc`, `.xls`, `.ppt`, and `.msg`) through best-effort printable-string extraction; embedded or encoded text can be missed.
-
-The detector currently includes validated patterns for email addresses, phone numbers, dates, SSNs, payment cards, passport and driver-license identifiers when context labels them, postal address fragments, IP/MAC addresses, AWS access keys, IBANs, Bitcoin addresses, private-key headers, and sensitive field names. It is intentionally not a replacement for an organization-specific data classification policy.
-
-## Usage
+Download the archive for the target operating system and architecture from the [latest release](https://github.com/sundruid/piiscan/releases/latest), or build from source with Go 1.26+:
 
 ```bash
 go build -trimpath -ldflags='-s -w' -o piiscan .
@@ -29,22 +18,63 @@ go build -trimpath -ldflags='-s -w' -o piiscan .
   -report=/path/to/piiscan-report.docx
 ```
 
-Options:
-
-- `-filesystem` (required): directory to scan. Symlinks are not followed.
-- `-report`: output DOCX path. Defaults to `piiscan-report.docx`.
-- `-workers`: concurrent extractors. Defaults to the available CPU count.
-- `-min-confidence`: include findings at or above this score (0-99). Defaults to 40.
-- `-include-evidence`: include a small number of redacted evidence samples in console output and the report. Raw values are never written by this option.
-- `-max-samples`: maximum redacted evidence samples per logical finding. Defaults to 3.
-
-Console output is intentionally file-centric:
+The scanner prints one ranked line per suspected file and writes the DOCX report. Evidence is omitted by default; `-include-evidence` adds only redacted samples.
 
 ```text
 [96%] /evidence/customers.xlsx (XLSX) - payment card (4), email address (8)
+Report written to /evidence/piiscan-report.docx
 ```
 
-The DOCX report includes an executive summary, ranked findings, extraction format, confidence rationale, warnings and limitations, redacted evidence when requested, and an incident-response checklist.
+## What is scanned
+
+Extraction and detection are separate layers. The detector catalog and its validators live in [`detector.go`](detector.go), so adding or tuning a PII class does not require changing file-format code. The catalog is the source of truth; the README intentionally describes coverage by family rather than duplicating every pattern.
+
+Supported input families include:
+
+- Text and structured data: plain text, logs, source/config files, CSV/TSV, JSON/JSONL, SQL, XML/HTML, YAML, RTF, and email (`.eml`).
+- Office and OpenDocument packages: DOCX, XLSX, PPTX, ODT, ODS, and ODP, including values split across XML formatting runs.
+- Databases: SQLite (`.db`, `.sqlite`, `.sqlite3`) scanned read-only table by table; SQL dumps are treated as text.
+- Containers: ZIP, TAR, GZIP, and bounded nested combinations. Archive limits reduce accidental archive-bomb exposure.
+- PDF: embedded text through a pure-Go parser.
+- Legacy Office binaries: `.doc`, `.xls`, `.ppt`, and `.msg` through best-effort printable-string extraction.
+
+Scanned-image or encrypted PDFs need OCR/decryption in a separate controlled workflow. Legacy binary formats and heavily encoded content can yield incomplete text.
+
+## Detection and triage
+
+The catalog combines pattern matching with validity checks and context signals. It is designed to find common identifiers and secrets while reducing obvious false positives. Findings are grouped by logical file and include:
+
+- a confidence percentage for analyst prioritization;
+- matched categories and counts;
+- source format and extraction warnings;
+- optional redacted evidence samples; and
+- deterministic ordering for repeatable incident review.
+
+Use `-min-confidence` to change the reporting threshold. The default is 40. A higher threshold is useful for a first-pass queue; a lower threshold is useful when recall matters more than analyst time.
+
+## Command-line options
+
+- `-filesystem` (required): root directory to scan. Symlinks are not followed.
+- `-report`: output DOCX path; default `piiscan-report.docx`.
+- `-workers`: maximum concurrent file scanners; defaults to the available CPU count.
+- `-min-confidence`: include findings at or above 0–99; default 40.
+- `-include-evidence`: include redacted samples in console output and the DOCX report.
+- `-max-samples`: maximum redacted samples per finding; default 3.
+- `-version`: print the scanner version.
+
+The report contains an executive summary, ranked findings, format coverage, confidence rationale, warnings and limitations, optional redacted evidence, and a response checklist.
+
+## Releases
+
+Tags matching `vMAJOR.MINOR.PATCH` publish archives with SHA-256 checksums through GitHub Actions. Each release contains CGO-free builds for:
+
+| OS | Architectures | Archive |
+| --- | --- | --- |
+| macOS | amd64, arm64 | `.tar.gz` |
+| Linux | amd64, arm64 | `.tar.gz` |
+| Windows | amd64, arm64 | `.zip` |
+
+Every archive has a matching `.sha256` file. The release workflow is defined in [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
 ## Development
 
@@ -57,12 +87,8 @@ go vet ./...
 go build ./...
 ```
 
-The GitHub Actions workflow runs formatting, race-enabled tests, vet, a native build, and CGO-free cross-builds for:
+CI also runs CGO-free cross-builds for all six release targets. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for detector, extractor, fixture, and release conventions.
 
-- macOS: amd64 and arm64
-- Linux: amd64 and arm64
-- Windows: amd64 and arm64
+## License
 
-Pushing a semantic version tag such as `v5.0.0` runs the release workflow and publishes archives for all six targets. The release build is CGO-free so the SQLite driver remains portable.
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the maintenance checklist.
+No license has been declared yet. Treat the repository as all-rights-reserved until a project license is added.
