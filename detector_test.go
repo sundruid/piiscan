@@ -63,8 +63,58 @@ func TestDetectPIISensitiveFieldsAndScore(t *testing.T) {
 	if score < 85 {
 		t.Fatalf("expected corroborated score >= 85, got %d (%#v)", score, categories)
 	}
-	if !containsKind(items, "sensitive field name") {
+	if !containsKind(items, "payment card field") {
 		t.Fatalf("sensitive camelCase field was not recognized: %#v", items)
+	}
+}
+
+func TestDetectPIIDateOfBirthFieldSamplesValues(t *testing.T) {
+	for _, field := range []string{"dob", "birthday", "birth_day", "birthDate", "date-of-birth"} {
+		items := detectPII([]string{"1984-07-12"}, []string{field})
+		if !containsKind(items, "date of birth field") || !containsKind(items, "possible birthdate") {
+			t.Errorf("field %q did not produce field and sampled-value evidence: %#v", field, items)
+		}
+		_, score := summarizeEvidence(items)
+		if score < 85 {
+			t.Errorf("field %q confidence score = %d, want at least 85", field, score)
+		}
+	}
+}
+
+func TestDetectPIICommonDatabaseFieldTitles(t *testing.T) {
+	tests := map[string]string{
+		"address":        "address field",
+		"address_line_1": "address field",
+		"phone":          "phone field",
+		"mobile":         "phone field",
+		"ss":             "social security or tax ID field",
+		"ssn":            "social security or tax ID field",
+		"email_address":  "email field",
+		"first_name":     "personal name field",
+		"bank_account":   "financial account field",
+		"patient_id":     "medical information field",
+	}
+	for field, kind := range tests {
+		items := detectPII(nil, []string{field})
+		if !containsKind(items, kind) {
+			t.Errorf("field %q did not produce %q: %#v", field, kind, items)
+		}
+	}
+}
+
+func TestDetectPIIHighEntropyKeyCandidate(t *testing.T) {
+	key := "A7kP3mQ9xT2vN8cR5jL4sW6z"
+	items := detectPII([]string{"api_key = " + key}, []string{"api_key"})
+	if !containsKind(items, "high-entropy key candidate") || !containsKind(items, "credential or secret field") {
+		t.Fatalf("high-entropy API key was not detected with field context: %#v", items)
+	}
+	for _, item := range items {
+		if item.Kind == "high-entropy key candidate" && item.Confidence < 90 {
+			t.Fatalf("contextual key confidence = %d, want at least 90", item.Confidence)
+		}
+	}
+	if items := detectPII([]string{"token = ABCABCABCABCABCABC123123"}, nil); containsKind(items, "high-entropy key candidate") {
+		t.Fatalf("low-entropy repeated token was detected: %#v", items)
 	}
 }
 

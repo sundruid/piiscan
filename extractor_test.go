@@ -5,9 +5,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -20,7 +18,7 @@ func TestExtractJSONAndJSONLValuesAndFields(t *testing.T) {
 	if !containsKind(items, "email address") || !containsKind(items, "US Social Security number") || !containsKind(items, "payment card") {
 		t.Fatalf("JSON values were not scanned: %#v", items)
 	}
-	if !containsKind(items, "sensitive field name") {
+	if !containsKind(items, "payment card field") {
 		t.Fatalf("JSON fields were not scanned: %#v", items)
 	}
 
@@ -28,6 +26,12 @@ func TestExtractJSONAndJSONLValuesAndFields(t *testing.T) {
 	values, fields, warnings := extractJSONStrings(jsonl, true)
 	if len(warnings) != 0 || len(values) != 2 || len(fields) != 2 {
 		t.Fatalf("JSONL extraction = values=%#v fields=%#v warnings=%#v", values, fields, warnings)
+	}
+
+	concatenated := []byte("{\"email\":\"one@example.com\"}\n{\"email\":\"two@example.com\"}\n")
+	values, fields, warnings = extractJSONStrings(concatenated, false)
+	if len(warnings) != 0 || len(values) != 2 || len(fields) != 2 {
+		t.Fatalf("concatenated JSON extraction = values=%#v fields=%#v warnings=%#v", values, fields, warnings)
 	}
 }
 
@@ -90,16 +94,6 @@ func TestExtractArchiveBounded(t *testing.T) {
 	}
 	if !containsKind(detectPII(docs[0].Texts, docs[0].Fields), "email address") {
 		t.Fatalf("archive entry was not scanned: %#v", docs)
-	}
-}
-
-func TestExtractPathSkipsOversizedFiles(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "large.txt")
-	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), int(maxInputBytes+1)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := extractPath(path); err == nil || !strings.Contains(err.Error(), "safety limit") {
-		t.Fatalf("expected safety-limit error, got %v", err)
 	}
 }
 

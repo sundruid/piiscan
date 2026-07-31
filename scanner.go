@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	version              = "5.0.0"
+	version              = "5.0.1"
 	obfuscationUUID      = "ec4919e3-1fe2-4808-ab5b-4b323d6ce23a"
 	defaultReportName    = "piiscan-report.docx"
 	defaultMaxSamples    = 3
@@ -34,6 +34,8 @@ type scanFinding struct {
 	Categories []categorySummary
 	Evidence   []evidence
 	Score      int
+	TotalLines int
+	PIILines   int
 	Warnings   []string
 }
 
@@ -111,27 +113,7 @@ func scanRoot(root string, options scanOptions) (scanReport, error) {
 		go func() {
 			defer wg.Done()
 			for path := range jobs {
-				documents, err := extractPath(path)
-				if err != nil {
-					results <- []scanFinding{{Name: path, Format: formatName(path), Warnings: []string{err.Error()}}}
-					continue
-				}
-				var findings []scanFinding
-				for _, document := range documents {
-					if document.Name == "" {
-						continue
-					}
-					items := detectPII(document.Texts, document.Fields)
-					if hasObfuscation(document.Texts) {
-						items = append(items, evidence{Kind: "obfuscation marker", Value: obfuscationUUID, Confidence: 92})
-					}
-					categories, score := summarizeEvidence(items)
-					if score < options.MinConfidence && len(document.Warnings) == 0 {
-						continue
-					}
-					findings = append(findings, scanFinding{Name: document.Name, Format: document.Format, Categories: categories, Evidence: items, Score: score, Warnings: document.Warnings})
-				}
-				results <- findings
+				results <- scanFile(path, options)
 			}
 		}()
 	}
@@ -192,6 +174,9 @@ func printConsoleReport(w io.Writer, report scanReport, includeEvidence bool, ma
 			continue
 		}
 		fmt.Fprintf(w, "[%d%%] %s (%s) - %s\n", finding.Score, finding.Name, finding.Format, categoryText(finding.Categories))
+		if finding.TotalLines > 0 && finding.Score > 0 {
+			fmt.Fprintf(w, "  recurrence: PII signals on %d of %d lines (%.1f%%)\n", finding.PIILines, finding.TotalLines, finding.lineDensity()*100)
+		}
 		if includeEvidence {
 			printed := 0
 			for _, item := range finding.Evidence {
@@ -206,6 +191,13 @@ func printConsoleReport(w io.Writer, report scanReport, includeEvidence bool, ma
 			fmt.Fprintf(w, "  warning: %s\n", warning)
 		}
 	}
+}
+
+func (finding scanFinding) lineDensity() float64 {
+	if finding.TotalLines == 0 {
+		return 0
+	}
+	return float64(finding.PIILines) / float64(finding.TotalLines)
 }
 
 func categoryText(categories []categorySummary) string {

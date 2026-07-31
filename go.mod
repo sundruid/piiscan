@@ -1,4 +1,4 @@
-module github.com/sundruid/piiscan
+module github.com/sundruid/PIIScan
 
 go 1.26
 
