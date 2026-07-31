@@ -144,7 +144,21 @@ func extractJSONStrings(data []byte, lineDelimited bool) (values, fields, warnin
 			warnings = append(warnings, err.Error())
 		}
 	} else {
-		decode(data)
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		valueNumber := 0
+		for {
+			var value any
+			err := decoder.Decode(&value)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			valueNumber++
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("JSON value %d: %v", valueNumber, err))
+				break
+			}
+			walkJSON(value, &values, &fields)
+		}
 	}
 	return
 }
@@ -173,11 +187,9 @@ func walkJSON(value any, values, fields *[]string) {
 }
 
 func sensitiveSQLFields(data string) []string {
-	matches := sensitiveFieldWordPattern.FindAllString(data, -1)
+	matches := piiFieldCandidatePattern.FindAllString(data, -1)
 	return matches
 }
-
-var sensitiveFieldWordPattern = regexp.MustCompile(`(?i)\b(?:password|passwd|passphrase|secret|api[ _-]?key|auth[ _-]?token|access[ _-]?token|national[ _-]?id|social[ _-]?security(?:[ _-]?number)?|ssn|credit[ _-]?card(?:[ _-]?number)?|card[ _-]?number|date[ _-]?of[ _-]?birth|birth[ _-]?date|dob|passport(?:[ _-]?(?:number|no))?|driver'?s?[ _-]*licen[cs]e(?:[ _-]?(?:number|no))?)\b`)
 
 func extractOffice(name, displayName string, data []byte) ([]extractedDocument, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))

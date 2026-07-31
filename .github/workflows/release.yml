@@ -27,11 +27,12 @@ jobs:
           - goos: windows
             goarch: arm64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
       - name: Build archive
         env:
           GOOS: ${{ matrix.goos }}
@@ -52,7 +53,7 @@ jobs:
             tar -C dist -czf "piiscan-${GOOS}-${GOARCH}.tar.gz" "${binary}"
             sha256sum "piiscan-${GOOS}-${GOARCH}.tar.gz" > "piiscan-${GOOS}-${GOARCH}.tar.gz.sha256"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: piiscan-${{ matrix.goos }}-${{ matrix.goarch }}
           path: piiscan-${{ matrix.goos }}-${{ matrix.goarch }}.*
@@ -61,7 +62,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: piiscan-*

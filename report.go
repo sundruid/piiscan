@@ -80,7 +80,7 @@ func buildDOCX(file *os.File, report scanReport, includeEvidence bool, maxSample
 
 func documentXML(report scanReport, includeEvidence bool, maxSamples int) string {
 	var body strings.Builder
-	body.WriteString(paragraph("PII Scan Incident Response Report", "Title", "", false, false))
+	body.WriteString(paragraph("PIIScan Incident Response Report", "Title", "", false, false))
 	body.WriteString(paragraph("Automated triage report - suspected findings require analyst validation", "Subtitle", "666666", false, false))
 	body.WriteString(paragraph(fmt.Sprintf("Generated: %s UTC", report.Stats.Finished.Format(time.RFC3339)), "Metadata", "666666", false, false))
 	body.WriteString(paragraph(fmt.Sprintf("Target: %s", report.Root), "Metadata", "666666", false, false))
@@ -114,7 +114,7 @@ func documentXML(report scanReport, includeEvidence bool, maxSamples int) string
 				continue
 			}
 			warnings := strings.Join(finding.Warnings, "; ")
-			rows = append(rows, []string{fmt.Sprintf("%d%%", finding.Score), finding.Name, finding.Format, categoryText(finding.Categories), warnings})
+			rows = append(rows, []string{fmt.Sprintf("%d%%", finding.Score), finding.Name, finding.Format, findingCategoryText(finding), warnings})
 		}
 		body.WriteString(table(headers, rows, []int{900, 3600, 1100, 2460, 1300}))
 	}
@@ -131,7 +131,7 @@ func documentXML(report scanReport, includeEvidence bool, maxSamples int) string
 
 	body.WriteString(heading("Methodology and coverage", 1))
 	for _, item := range []string{
-		"A shared detector runs over extracted text and structured values rather than using a file-extension-specific pattern list. It validates high-risk candidates such as SSNs, payment cards, dates, IBANs, and phone numbers before scoring.",
+		"A shared detector runs over extracted text and structured values rather than using a file-extension-specific pattern list. It validates high-risk candidates such as SSNs, payment cards, dates, IBANs, and phone numbers before scoring. For streamed data files, sparse content-only matches are discounted by line recurrence; explicit PII schema fields and strong secret indicators override that discount.",
 		"Text, CSV/TSV, JSON/JSONL, SQL, XML/HTML, YAML, RTF, logs, source files, and email messages are scanned directly. ZIP/TAR/GZIP containers are inspected with bounded decompression, and common DOCX/XLSX/PPTX and ODT/ODS/ODP packages are decoded through their XML parts.",
 		"SQLite databases are opened read-only and scanned table by table. PDFs with an embedded text layer are extracted; scanned-image PDFs, encrypted documents, and OCR are reported as coverage limitations. Legacy DOC/XLS/PPT files use best-effort printable-string extraction.",
 	} {
@@ -184,6 +184,14 @@ func documentXML(report scanReport, includeEvidence bool, maxSamples int) string
 		`<w:sectPr><w:headerReference w:type="default" r:id="rId3"/><w:footerReference w:type="default" r:id="rId4"/>` +
 		fmt.Sprintf(`<w:pgSz w:w="%d" w:h="%d"/><w:pgMar w:top="%d" w:right="%d" w:bottom="%d" w:left="%d" w:header="708" w:footer="708" w:gutter="0"/>`, pageWidth, pageHeight, margin, margin, margin, margin) +
 		`</w:sectPr></w:body></w:document>`
+}
+
+func findingCategoryText(finding scanFinding) string {
+	text := categoryText(finding.Categories)
+	if finding.TotalLines > 0 && finding.Score > 0 {
+		return fmt.Sprintf("%s; recurrence %d/%d lines (%.1f%%)", text, finding.PIILines, finding.TotalLines, finding.lineDensity()*100)
+	}
+	return text
 }
 
 func paragraph(text, style, color string, bold, italic bool) string {
@@ -271,11 +279,11 @@ func documentRelationshipsXML() string {
 }
 
 func corePropertiesXML() string {
-	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>PII Scan Incident Response Report</dc:title><dc:creator>piiscan</dc:creator><cp:lastModifiedBy>piiscan</cp:lastModifiedBy></cp:coreProperties>`
+	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>PIIScan Incident Response Report</dc:title><dc:creator>PIIScan</dc:creator><cp:lastModifiedBy>PIIScan</cp:lastModifiedBy></cp:coreProperties>`
 }
 
 func appPropertiesXML() string {
-	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>piiscan</Application></Properties>`
+	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>PIIScan</Application></Properties>`
 }
 
 func settingsXML() string {
@@ -283,7 +291,7 @@ func settingsXML() string {
 }
 
 func headerXML() string {
-	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:t>piiscan | Incident response report</w:t></w:r></w:p></w:hdr>`
+	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:pStyle w:val="Header"/></w:pPr><w:r><w:t>PIIScan | Incident response report</w:t></w:r></w:p></w:hdr>`
 }
 
 func footerXML() string {

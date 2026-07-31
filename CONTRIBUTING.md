@@ -1,4 +1,4 @@
-# Contributing to piiscan
+# Contributing to PIIScan
 
 Keep changes small, testable, and focused on scanner accuracy or operational safety.
 

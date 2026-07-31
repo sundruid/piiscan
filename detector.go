@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,6 +29,12 @@ type piiPattern struct {
 	confidence      int
 	validate        func(string) bool
 	digitBoundaries bool
+}
+
+type piiFieldPattern struct {
+	kind       string
+	re         *regexp.Regexp
+	confidence int
 }
 
 var piiPatterns = []piiPattern{
@@ -119,7 +126,28 @@ var piiPatterns = []piiPattern{
 	},
 }
 
-var sensitiveFieldPattern = regexp.MustCompile(`(?i)^(?:password|passwd|passphrase|secret|api[ _-]?key|auth[ _-]?token|access[ _-]?token|national[ _-]?id|social[ _-]?security(?:[ _-]?number)?|ssn|credit[ _-]?card(?:[ _-]?number)?|card[ _-]?number|date[ _-]?of[ _-]?birth|birth[ _-]?date|dob|passport(?:[ _-]?(?:number|no))?|driver'?s?[ _-]?licen[cs]e(?:[ _-]?(?:number|no))?)$`)
+var (
+	piiFieldPatterns = []piiFieldPattern{
+		{kind: "social security or tax ID field", re: regexp.MustCompile(`(?i)^(?:ss|ssn|social[ _-]?security(?:[ _-]?(?:number|no))?|national[ _-]?id|tax[ _-]?id|tin)$`), confidence: 88},
+		{kind: "payment card field", re: regexp.MustCompile(`(?i)^(?:credit[ _-]?card(?:[ _-]?(?:number|no))?|card[ _-]?(?:number|no)|payment[ _-]?card)$`), confidence: 86},
+		{kind: "credential or secret field", re: regexp.MustCompile(`(?i)^(?:password|passwd|passphrase|secret|api[ _-]?key|access[ _-]?key|private[ _-]?key|auth[ _-]?token|access[ _-]?token|bearer[ _-]?token|credential)$`), confidence: 84},
+		{kind: "date of birth field", re: regexp.MustCompile(`(?i)^(?:date[ _-]?of[ _-]?birth|birth[ _-]?(?:date|day)|birthday|dob)$`), confidence: 82},
+		{kind: "passport field", re: regexp.MustCompile(`(?i)^passport(?:[ _-]?(?:number|no))?$`), confidence: 82},
+		{kind: "driver license field", re: regexp.MustCompile(`(?i)^(?:driver'?s?[ _-]?licen[cs]e|driver'?s?[ _-]?licen[cs]e[ _-]?(?:number|no)|dl[ _-]?(?:number|no))$`), confidence: 82},
+		{kind: "financial account field", re: regexp.MustCompile(`(?i)^(?:bank[ _-]?account|account[ _-]?(?:number|no)|routing[ _-]?(?:number|no)|iban|swift|bic)$`), confidence: 82},
+		{kind: "medical information field", re: regexp.MustCompile(`(?i)^(?:medical[ _-]?record(?:[ _-]?(?:number|no))?|mrn|health[ _-]?(?:record|condition)|diagnosis|patient[ _-]?id)$`), confidence: 80},
+		{kind: "email field", re: regexp.MustCompile(`(?i)^(?:e[ _-]?mail(?:[ _-]?address)?|email[ _-]?address)$`), confidence: 76},
+		{kind: "phone field", re: regexp.MustCompile(`(?i)^(?:phone(?:[ _-]?(?:number|no))?|telephone|tel|mobile(?:[ _-]?phone)?|cell(?:[ _-]?phone)?|fax)$`), confidence: 72},
+		{kind: "address field", re: regexp.MustCompile(`(?i)^(?:(?:mailing|billing|shipping|postal|street)[ _-]?address|address(?:[ _-]?(?:line)?[ _-]?[12])?)$`), confidence: 70},
+		{kind: "biometric field", re: regexp.MustCompile(`(?i)^(?:biometric|fingerprint|face[ _-]?template|voice[ _-]?print)$`), confidence: 85},
+		{kind: "network identifier field", re: regexp.MustCompile(`(?i)^(?:ip[ _-]?address|mac[ _-]?address|device[ _-]?id)$`), confidence: 60},
+		{kind: "personal identifier field", re: regexp.MustCompile(`(?i)^(?:(?:customer|person|employee|member|user)[ _-]?id|username)$`), confidence: 58},
+		{kind: "personal name field", re: regexp.MustCompile(`(?i)^(?:(?:first|middle|last|full|legal|maiden|given)[ _-]?name|surname)$`), confidence: 58},
+	}
+	piiFieldCandidatePattern = regexp.MustCompile(`(?i)\b(?:ss|ssn|social[ _-]?security(?:[ _-]?(?:number|no))?|national[ _-]?id|tax[ _-]?id|tin|credit[ _-]?card(?:[ _-]?(?:number|no))?|card[ _-]?(?:number|no)|payment[ _-]?card|password|passwd|passphrase|secret|api[ _-]?key|access[ _-]?key|private[ _-]?key|auth[ _-]?token|access[ _-]?token|bearer[ _-]?token|credential|date[ _-]?of[ _-]?birth|birth[ _-]?(?:date|day)|birthday|dob|passport(?:[ _-]?(?:number|no))?|driver'?s?[ _-]?licen[cs]e(?:[ _-]?(?:number|no))?|dl[ _-]?(?:number|no)|bank[ _-]?account|account[ _-]?(?:number|no)|routing[ _-]?(?:number|no)|iban|swift|bic|medical[ _-]?record(?:[ _-]?(?:number|no))?|mrn|health[ _-]?(?:record|condition)|diagnosis|patient[ _-]?id|e[ _-]?mail(?:[ _-]?address)?|email[ _-]?address|phone(?:[ _-]?(?:number|no))?|telephone|tel|mobile(?:[ _-]?phone)?|cell(?:[ _-]?phone)?|fax|(?:mailing|billing|shipping|postal|street)[ _-]?address|address(?:[ _-]?(?:line)?[ _-]?[12])?|biometric|fingerprint|face[ _-]?template|voice[ _-]?print|ip[ _-]?address|mac[ _-]?address|device[ _-]?id|(?:customer|person|employee|member|user)[ _-]?id|username|(?:first|middle|last|full|legal|maiden|given)[ _-]?name|surname)\b`)
+	highEntropyTokenPattern  = regexp.MustCompile(`\b[A-Za-z0-9]{20,128}\b`)
+	keyContextPattern        = regexp.MustCompile(`(?i)(?:api[ _-]?key|access[ _-]?key|auth[ _-]?token|access[ _-]?token|bearer|credential|secret|token|key)[[:space:]_"'=:\-]{0,24}$`)
+)
 
 func detectPII(texts []string, fieldNames []string) []evidence {
 	seen := make(map[string]struct{})
@@ -148,14 +176,82 @@ func detectPII(texts []string, fieldNames []string) []evidence {
 		}
 	}
 
+	for _, text := range texts {
+		for _, indexes := range highEntropyTokenPattern.FindAllStringIndex(text, -1) {
+			candidate := text[indexes[0]:indexes[1]]
+			if containsEvidenceValue(result, candidate) || !isHighEntropyToken(candidate) {
+				continue
+			}
+			confidence := 72
+			contextStart := indexes[0] - 96
+			if contextStart < 0 {
+				contextStart = 0
+			}
+			if keyContextPattern.MatchString(text[contextStart:indexes[0]]) {
+				confidence = 90
+			}
+			addEvidence(&result, seen, evidence{Kind: "high-entropy key candidate", Value: candidate, Confidence: confidence})
+		}
+	}
+
 	for _, field := range fieldNames {
 		trimmed := strings.TrimSpace(field)
-		if sensitiveFieldPattern.MatchString(trimmed) {
-			addEvidence(&result, seen, evidence{Kind: "sensitive field name", Value: trimmed, Confidence: 45})
+		for _, pattern := range piiFieldPatterns {
+			if pattern.re.MatchString(trimmed) {
+				addEvidence(&result, seen, evidence{Kind: pattern.kind, Value: trimmed, Confidence: pattern.confidence})
+				break
+			}
 		}
 	}
 
 	return result
+}
+
+func containsEvidenceValue(items []evidence, value string) bool {
+	for _, item := range items {
+		if strings.EqualFold(item.Value, value) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHighEntropyToken(value string) bool {
+	if len(value) < 20 || len(value) > 128 {
+		return false
+	}
+	classes := 0
+	upper, lower, digit := false, false, false
+	counts := make(map[byte]int, 64)
+	for i := 0; i < len(value); i++ {
+		character := value[i]
+		counts[character]++
+		switch {
+		case character >= 'A' && character <= 'Z':
+			upper = true
+		case character >= 'a' && character <= 'z':
+			lower = true
+		case character >= '0' && character <= '9':
+			digit = true
+		default:
+			return false
+		}
+	}
+	for _, present := range []bool{upper, lower, digit} {
+		if present {
+			classes++
+		}
+	}
+	if classes < 2 || !digit || !upper && !lower {
+		return false
+	}
+	entropy := 0.0
+	length := float64(len(value))
+	for _, count := range counts {
+		probability := float64(count) / length
+		entropy -= probability * math.Log2(probability)
+	}
+	return entropy >= 3.5
 }
 
 func addEvidence(result *[]evidence, seen map[string]struct{}, item evidence) {
@@ -194,25 +290,40 @@ func summarizeEvidence(items []evidence) ([]categorySummary, int) {
 	for _, item := range byKind {
 		categories = append(categories, *item)
 	}
+	sortCategorySummaries(categories)
+	return categories, scoreCategorySummaries(categories)
+}
+
+func sortCategorySummaries(categories []categorySummary) {
 	sort.Slice(categories, func(i, j int) bool {
 		if categories[i].Confidence != categories[j].Confidence {
 			return categories[i].Confidence > categories[j].Confidence
 		}
 		return categories[i].Kind < categories[j].Kind
 	})
+}
 
+func scoreCategorySummaries(categories []categorySummary) int {
+	if len(categories) == 0 {
+		return 0
+	}
 	score := categories[0].Confidence
 	if categories[0].Count > 1 {
 		score += minInt(categories[0].Count-1, 3) * 2
 	}
 	score += minInt(len(categories)-1, 3) * 4
-	if _, hasField := byKind["sensitive field name"]; hasField && len(categories) > 1 {
-		score += 5
+	if len(categories) > 1 {
+		for _, category := range categories {
+			if category.Kind == "sensitive field name" || strings.HasSuffix(category.Kind, " field") {
+				score += 5
+				break
+			}
+		}
 	}
 	if score > 99 {
 		score = 99
 	}
-	return categories, score
+	return score
 }
 
 func validateSSN(value string) bool {
